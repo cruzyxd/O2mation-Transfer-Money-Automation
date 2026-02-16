@@ -57,17 +57,23 @@ bot.on('text', async (ctx) => {
   const userId = ctx.chat.id;
   const userMessage = ctx.message.text;
 
-  // Check if we are waiting for a decline reason from this user
-  if (actionState[userId] && actionState[userId].type === 'AWAITING_DECLINE_REASON') {
-    const { requestId, messageIdToEdit, originalText } = actionState[userId];
+  // Check if we are waiting for a reason from this user
+  if (actionState[userId]) {
+    const { requestId, messageIdToEdit, originalText, type } = actionState[userId];
     const request = pendingRequests[requestId];
 
-    if (request) {
-      const { manager1Id, data } = request;
-      const reason = userMessage;
+    if (!request) {
+      await ctx.reply("Request expired or not found.");
+      delete actionState[userId];
+      return;
+    }
 
+    const { manager1Id, manager2Id, data } = request;
+    const reason = userMessage;
+    const safeText = escapeHTML(originalText);
+
+    if (type === 'AWAITING_DECLINE_REASON') {
       // 1. Update Manager 2's original request message to show Declined status
-      const safeText = escapeHTML(originalText);
       const newText = safeText + `\n\n❌ <b>DECLINED</b>\nReason: <i>${escapeHTML(reason)}</i>`;
       
       try {
@@ -80,13 +86,28 @@ bot.on('text', async (ctx) => {
       const notificationToManager1 = `❌ Your request for <b>${data.amount}</b> to <b>${data.recipient}</b> has been <b>DECLINED</b> by Manager 2.\n\n<b>Reason:</b> ${escapeHTML(reason)}`;
       await bot.telegram.sendMessage(manager1Id, notificationToManager1, { parse_mode: 'HTML' });
       
-      // Confirm to Manager 2 that the reason was sent
       await ctx.reply("Reason sent. Request declined.");
-
-      // Clean up
       delete pendingRequests[requestId];
-    } else {
-        await ctx.reply("Request expired or not found.");
+    } 
+    else if (type === 'AWAITING_ISSUE_REASON') {
+      // 1. Update Accountant's message
+      const newText = safeText + `\n\n⚠️ <b>ISSUE REPORTED</b>\nReason: <i>${escapeHTML(reason)}</i>`;
+      
+      try {
+        await bot.telegram.editMessageText(userId, messageIdToEdit, undefined, newText, { parse_mode: 'HTML' });
+      } catch (e) {
+        console.error("Error updating Accountant message:", e);
+      }
+
+      // 2. Notify BOTH Managers
+      const notification = `⚠️ Accountant reported an issue for the request: <b>${data.amount}</b> to <b>${data.recipient}</b>.\n\n<b>Reason:</b> ${escapeHTML(reason)}`;
+      await bot.telegram.sendMessage(manager1Id, notification, { parse_mode: 'HTML' });
+      if (manager2Id) {
+        await bot.telegram.sendMessage(manager2Id, notification, { parse_mode: 'HTML' });
+      }
+      
+      await ctx.reply("Issue reported to both managers.");
+      delete pendingRequests[requestId];
     }
 
     // Clear state
@@ -209,6 +230,9 @@ bot.action(/^(accept|decline)_(.+)$/, async (ctx) => {
 
   await ctx.answerCbQuery('Request Accepted');
   
+  // 1. Store Manager 2's ID in the request object for later notification by accountant
+  request.manager2Id = ctx.from.id;
+
   // 1. Update Manager 2's message
   const originalText = ctx.callbackQuery.message.text;
   const safeText = escapeHTML(originalText);
@@ -235,12 +259,69 @@ The following request has been approved and is ready for payment:
 👤 <b>Recipient:</b> ${data.recipient}
 🛒 <b>Item:</b> ${data.item}
 
-Please issue the payment accordingly.
+Please confirm the payment or report an issue.
   `;
     
   // In a real app, send to accountant's ID. Here we send to the same chat for demo.
   await bot.telegram.sendMessage(ctx.chat.id, "🔄 <i>Routing to Accountant...</i>", { parse_mode: 'HTML' });
-  await bot.telegram.sendMessage(ctx.chat.id, accountantMessage, { parse_mode: 'HTML' });
+  await bot.telegram.sendMessage(ctx.chat.id, accountantMessage, {
+    parse_mode: 'HTML',
+    ...Markup.inlineKeyboard([
+      [
+        Markup.button.callback('✅ Confirm', `confirm_acc_${requestId}`),
+        Markup.button.callback('⚠️ Issue', `issue_acc_${requestId}`)
+      ]
+    ])
+  });
+
+  // NOTE: We do NOT delete pendingRequests[requestId] here anymore because the accountant needs it.
+});
+
+// Action handlers for Accountant buttons
+bot.action(/^(confirm_acc|issue_acc)_(.+)$/, async (ctx) => {
+  const action = ctx.match[1];
+  const requestId = ctx.match[2];
+  const request = pendingRequests[requestId];
+
+  if (!request) {
+    return ctx.answerCbQuery('Request not found or already processed.');
+  }
+
+  const { manager1Id, manager2Id, data } = request;
+
+  if (action === 'issue_acc') {
+    await ctx.answerCbQuery('Please report the issue.');
+    
+    actionState[ctx.from.id] = {
+      type: 'AWAITING_ISSUE_REASON',
+      requestId: requestId,
+      messageIdToEdit: ctx.callbackQuery.message.message_id,
+      originalText: ctx.callbackQuery.message.text
+    };
+
+    await ctx.reply(`Reporting issue for ${data.recipient} (${data.amount}). Please provide details/reason:`, Markup.forceReply());
+    return;
+  }
+
+  // Handle CONFIRM case
+  await ctx.answerCbQuery('Payment Confirmed');
+  
+  // 1. Update Accountant's message
+  const originalText = ctx.callbackQuery.message.text;
+  const safeText = escapeHTML(originalText);
+  const status = '✅ <b>CONFIRMED BY ACCOUNTANT</b>';
+  const newText = safeText + `\n\n${status}`;
+  
+  try {
+    await ctx.editMessageText(newText, { parse_mode: 'HTML' });
+  } catch (e) {
+    await ctx.editMessageText(originalText + `\n\nCONFIRMED`);
+  }
+
+  // 2. Notify BOTH Managers
+  const notification = `✅ Payment of <b>${data.amount}</b> to <b>${data.recipient}</b> has been <b>CONFIRMED</b> by the Accountant.`;
+  await bot.telegram.sendMessage(manager1Id, notification, { parse_mode: 'HTML' });
+  await bot.telegram.sendMessage(manager2Id, notification, { parse_mode: 'HTML' });
 
   // Clean up
   delete pendingRequests[requestId];
