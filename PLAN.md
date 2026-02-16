@@ -59,9 +59,9 @@ Refactored to remove `pendingRequests = {}`.
 > **STRICT ADHERENCE RULE:** Never proceed beyond the specifically requested task or phase. If the user asks for Phase X.X, only that sub-phase must be completed. Mark off each completed task with `[x]` only after it is fully implemented and verified.
 
 ### Phase 1: Infrastructure (Setup)
-- [ ] **1.1 Install Dependencies:** Install `better-sqlite3`.
-- [ ] **1.2 Environment Configuration:** Ensure `GOOGLE_SERVICE_ACCOUNT_KEY` and `SPREADSHEET_ID` are in `.env`.
-- [ ] **1.3 Google Sheets Header Initialization:** Create a script to write the header row (A1:L1) to the Google Sheet if empty.
+- [x] **1.1 Install Dependencies:** Install `better-sqlite3`.
+- [x] **1.2 Environment Configuration:** Ensure `GOOGLE_SERVICE_ACCOUNT_KEY` and `SPREADSHEET_ID` are in `.env`.
+- [x] **1.3 Google Sheets Header Initialization:** Create a script to write the header row (A1:L1) to the Google Sheet if empty.
 
 ### Phase 2: The Database Layer
 - [ ] **2.1 Create Database Module:** Create `utils/db.js`.
