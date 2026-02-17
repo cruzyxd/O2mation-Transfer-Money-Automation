@@ -1,4 +1,5 @@
 node_modules/
 *.log
-.env
-*.json
+database.sqlite
+database.sqlite-journal
+database.sqlite-wal
