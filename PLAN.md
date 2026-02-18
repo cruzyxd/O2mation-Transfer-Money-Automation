@@ -64,22 +64,22 @@ Refactored to remove `pendingRequests = {}`.
 - [x] **1.3 Google Sheets Header Initialization:** Create a script to write the header row (A1:L1) to the Google Sheet if empty.
 
 ### Phase 2: The Database Layer
-- [ ] **2.1 Create Database Module:** Create `utils/db.js`.
-- [ ] **2.2 Implement Initialization Logic:** Implement `init()` with the `requests` table schema.
-- [ ] **2.3 Implement CRUD Operations:** Implement `createRequest`, `updateManager`, `updateAccountant`, and `getRequest`.
-- [ ] **2.4 Verify Database:** Write a small test script to verify `database.sqlite` creation and data insertion.
+- [x] **2.1 Create Database Module:** Create `utils/db.js`.
+- [x] **2.2 Implement Initialization Logic:** Implement `init()` with the `requests` table schema.
+- [x] **2.3 Implement CRUD Operations:** Implement `createRequest`, `updateManager`, `updateAccountant`, and `getRequest`.
+- [x] **2.4 Verify Database:** Write a small test script to verify `database.sqlite` creation and data insertion.
 
 ### Phase 3: The Synchronization Layer
-- [ ] **3.1 Create Sync Module:** Create `utils/sheetsSync.js`.
-- [ ] **3.2 Implement Row Lookup:** Implement row-finding logic (Read Col A -> `indexOf(id)`).
-- [ ] **3.3 Implement Update Logic:** Implement cell-mapping logic for Manager/Accountant updates.
-- [ ] **3.4 Resilience:** Wrap all Sheet calls in `try/catch` to ensure bot resilience.
+- [x] 3.1 Create Sync Module: Create `utils/sheetsSync.js`.
+- [x] 3.2 Implement Row Lookup: Implement row-finding logic (Read Col A -> `indexOf(id)`).
+- [x] 3.3 Implement Update Logic: Implement cell-mapping logic for Manager/Accountant updates.
+- [x] 3.4 Resilience: Wrap all Sheet calls in `try/catch` to ensure bot resilience.
 
 ### Phase 4: Integration & Refactoring
-- [ ] **4.1 Import Modules:** Import `db` and `sheetsSync` into `index.js`.
-- [ ] **4.2 Replace In-Memory Storage:** Replace `pendingRequests` usage with `db` calls.
-- [ ] **4.3 Integrate Sync:** Inject sync calls after every successful DB write.
-- [ ] **4.4 Update State Management:** Update the `actionState` logic to pull current data from the DB when a "Reason" is provided via reply.
+- [x] 4.1 Import Modules: Import `db` and `sheetsSync` into `index.js`.
+- [x] 4.2 Replace In-Memory Storage: Replace `pendingRequests` usage with `db` calls.
+- [x] 4.3 Integrate Sync: Inject sync calls after every successful DB write.
+- [x] 4.4 Update State Management: Update the `actionState` logic to pull current data from the DB when a "Reason" is provided via reply.
 
 ---
 
