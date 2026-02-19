@@ -22,7 +22,8 @@ export const init = () => {
       accountant_status TEXT DEFAULT 'PENDING',
       accountant_id TEXT,
       accountant_reason TEXT,
-      updated_at TEXT
+      updated_at TEXT,
+      last_reminder_at TEXT
     )
   `).run();
 
@@ -48,6 +49,12 @@ export const init = () => {
 
   try {
     db.prepare('ALTER TABLE requests ADD COLUMN updated_at TEXT').run();
+  } catch (error) {
+    // Ignore error if column already exists
+  }
+
+  try {
+    db.prepare('ALTER TABLE requests ADD COLUMN last_reminder_at TEXT').run();
   } catch (error) {
     // Ignore error if column already exists
   }
@@ -140,6 +147,28 @@ export const getRequest = (id) => {
   return stmt.get(id);
 };
 
+export const getPendingForReminders = () => {
+  // Logic: 
+  // 1. Manager PENDING for > 24h AND (never reminded OR last reminder > 24h)
+  // 2. Accountant PENDING (Manager APPROVED) for > 24h AND (never reminded OR last reminder > 24h)
+  const stmt = db.prepare(`
+    SELECT * FROM requests 
+    WHERE 
+      (
+        (manager_status = 'PENDING' AND (strftime('%s','now') - strftime('%s', timestamp) > 86400))
+        OR 
+        (manager_status = 'APPROVED' AND accountant_status = 'PENDING' AND (strftime('%s','now') - strftime('%s', updated_at) > 86400))
+      )
+      AND (last_reminder_at IS NULL OR (strftime('%s','now') - strftime('%s', last_reminder_at) > 86400))
+  `);
+  return stmt.all();
+};
+
+export const updateReminderTimestamp = (id) => {
+  const stmt = db.prepare('UPDATE requests SET last_reminder_at = ? WHERE id = ?');
+  return stmt.run(new Date().toISOString(), id);
+};
+
 export default {
   init,
   createRequest,
@@ -152,5 +181,7 @@ export default {
   getPendingActionsByRequestId,
   savePendingRequestEdit,
   getPendingRequestEdit,
-  deletePendingRequestEdit
+  deletePendingRequestEdit,
+  getPendingForReminders,
+  updateReminderTimestamp
 };

@@ -1,8 +1,10 @@
 import { Telegraf, Markup } from 'telegraf';
 import { GoogleGenAI } from '@google/genai';
 import 'dotenv/config';
+import cron from 'node-cron';
 import db from './utils/db.js';
 import sheetsSync from './utils/sheetsSync.js';
+import { checkAndSendReminders } from './utils/reminders.js';
 
 // Initialize Database
 db.init();
@@ -32,6 +34,12 @@ const AUTHORIZED_IDS = {
 const ROUTING = {
   APPROVAL_MANAGER: AUTHORIZED_IDS.MANAGER_A, // Currently sending back to self
   PAYMENT_ACCOUNTANT: AUTHORIZED_IDS.ACCOUNTANT   // Currently sending back to self
+};
+
+const MANAGER_NAMES = {
+  [AUTHORIZED_IDS.MANAGER_A]: "Alice",
+  [AUTHORIZED_IDS.MANAGER_B]: "Bob",
+  [AUTHORIZED_IDS.ACCOUNTANT]: "Charlie"
 };
 
 // --- Middleware: Access Control (Silent Ignore) ---
@@ -82,7 +90,8 @@ If ANY information is missing or unclear:
 
 bot.start((ctx) => {
   userContexts[ctx.chat.id] = []; // Reset context
-  ctx.reply('Welcome Manager! Describe a payment request (Amount, Who, What) and I will process it.');
+  const name = MANAGER_NAMES[ctx.chat.id] || 'Manager';
+  ctx.reply(`Welcome ${name}! Describe a payment request (Amount, Who, What) and I will process it.`);
 });
 
 bot.on('text', async (ctx) => {
@@ -123,6 +132,8 @@ bot.on('text', async (ctx) => {
       // 1. Update Database
       db.updateManager(requestId, 'DECLINED', reason, userId.toString());
 
+      const managerName = MANAGER_NAMES[userId] || 'Manager';
+
       // 2. Sync to Google Sheets
       sheetsSync.updateCells(requestId, {
         manager_status: 'DECLINED',
@@ -140,7 +151,7 @@ bot.on('text', async (ctx) => {
       }
 
       // 3. Notify Manager 1
-      const notificationToManager1 = `❌ Your request for <b>${amount}</b> to <b>${recipient}</b> has been <b>DECLINED</b> by Manager 2.\n\n<b>Reason:</b> ${escapeHTML(reason)}`;
+      const notificationToManager1 = `❌ Your request for <b>${amount}</b> to <b>${recipient}</b> has been <b>DECLINED</b> by ${managerName}.\n\n<b>Reason:</b> ${escapeHTML(reason)}`;
       await bot.telegram.sendMessage(manager1Id, notificationToManager1, { parse_mode: 'HTML' });
       
       await ctx.reply("Reason sent. Request declined.", { reply_markup: { remove_keyboard: true } });
@@ -148,6 +159,8 @@ bot.on('text', async (ctx) => {
     else if (type === 'AWAITING_ISSUE_REASON') {
       // 1. Update Database
       db.updateAccountant(requestId, 'ISSUE', reason, userId.toString());
+
+      const accountantName = MANAGER_NAMES[userId] || 'Accountant';
 
       // 2. Sync to Google Sheets
       sheetsSync.updateCells(requestId, {
@@ -166,7 +179,7 @@ bot.on('text', async (ctx) => {
       }
 
       // 3. Notify BOTH Managers
-      const notification = `⚠️ Accountant reported an issue for the request: <b>${amount}</b> to <b>${recipient}</b>.\n\n<b>Reason:</b> ${escapeHTML(reason)}`;
+      const notification = `⚠️ ${accountantName} reported an issue for the request: <b>${amount}</b> to <b>${recipient}</b>.\n\n<b>Reason:</b> ${escapeHTML(reason)}`;
       await bot.telegram.sendMessage(manager1Id, notification, { parse_mode: 'HTML' });
       if (manager2Id) {
         await bot.telegram.sendMessage(manager2Id, notification, { parse_mode: 'HTML' });
@@ -241,9 +254,11 @@ bot.on('text', async (ctx) => {
       // Clear context after success
       userContexts[userId] = [];
 
+      const requesterName = MANAGER_NAMES[userId] || 'Unknown Manager';
+
       // Format message for Manager 2
       const manager2Message = `
-🔔 <b>New Payment Request</b>
+🔔 <b>New Payment Request from ${requesterName}</b>
 
 👤 <b>Who:</b> ${result.data.recipient}
 💰 <b>Amount:</b> ${result.data.amount}
@@ -253,9 +268,17 @@ Please review this request.
       `;
 
       // Routing: Send to the designated Approval Manager
-      await ctx.reply(`🔄 <i>Routing request to Manager 2 for approval...</i>`, { parse_mode: 'HTML' });
+      let targetManagerId;
+      if (userId.toString() === AUTHORIZED_IDS.MANAGER_A) {
+        targetManagerId = AUTHORIZED_IDS.MANAGER_B;
+      } else {
+        targetManagerId = AUTHORIZED_IDS.MANAGER_A;
+      }
+
+      const approvalManagerName = MANAGER_NAMES[targetManagerId] || 'Manager';
+      await ctx.reply(`🔄 <i>Routing request to ${approvalManagerName} for approval...</i>`, { parse_mode: 'HTML' });
       
-      await bot.telegram.sendMessage(ROUTING.APPROVAL_MANAGER, manager2Message, {
+      await bot.telegram.sendMessage(targetManagerId, manager2Message, {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([
           Markup.button.callback('✅ Accept', `accept_${requestId}`),
@@ -341,6 +364,8 @@ bot.action(/^(accept|decline)_(.+)$/, async (ctx) => {
   // Handle ACCEPT case (Immediate approval)
   await ctx.answerCbQuery('Request Accepted');
   
+  const managerName = MANAGER_NAMES[ctx.from.id] || 'Manager';
+
   // 1. Update Database
   db.updateManager(requestId, 'APPROVED', null, ctx.from.id.toString());
 
@@ -363,12 +388,13 @@ bot.action(/^(accept|decline)_(.+)$/, async (ctx) => {
   }
 
   // 2. Notify Manager 1
-  const notificationToManager1 = `✅ Your request for <b>${amount}</b> to <b>${recipient}</b> has been <b>APPROVED</b> by Manager 2.`;
+  const notificationToManager1 = `✅ Your request for <b>${amount}</b> to <b>${recipient}</b> has been <b>APPROVED</b> by ${managerName}.`;
   await bot.telegram.sendMessage(manager1Id, notificationToManager1, { parse_mode: 'HTML' });
 
   // 3. Notify Accountant
+  const paymentAccountantName = MANAGER_NAMES[ROUTING.PAYMENT_ACCOUNTANT] || 'Accountant';
   const accountantMessage = `
-💼 <b>Payment Instruction for Accountant</b>
+💼 <b>Payment Instruction for ${paymentAccountantName}</b>
 
 The following request has been approved and is ready for payment:
 
@@ -380,7 +406,7 @@ Please confirm the payment or report an issue.
   `;
     
   // Routing: Send to the designated Accountant
-  await ctx.reply("🔄 <i>Routing to Accountant...</i>", { parse_mode: 'HTML' });
+  await ctx.reply(`🔄 <i>Routing to ${paymentAccountantName}...</i>`, { parse_mode: 'HTML' });
   await bot.telegram.sendMessage(ROUTING.PAYMENT_ACCOUNTANT, accountantMessage, {
     parse_mode: 'HTML',
     ...Markup.inlineKeyboard([
@@ -457,6 +483,8 @@ bot.action(/^(confirm_acc|issue_acc)_(.+)$/, async (ctx) => {
   // Handle CONFIRM case
   await ctx.answerCbQuery('Payment Confirmed');
   
+  const accountantName = MANAGER_NAMES[ctx.from.id] || 'Accountant';
+
   // 1. Update Database
   db.updateAccountant(requestId, 'CONFIRMED', null, ctx.from.id.toString());
 
@@ -479,10 +507,27 @@ bot.action(/^(confirm_acc|issue_acc)_(.+)$/, async (ctx) => {
   }
 
   // 2. Notify BOTH Managers
-  const notification = `✅ Payment of <b>${amount}</b> to <b>${recipient}</b> has been <b>CONFIRMED</b> by the Accountant.`;
+  const notification = `✅ Payment of <b>${amount}</b> to <b>${recipient}</b> has been <b>CONFIRMED</b> by ${accountantName}.`;
   await bot.telegram.sendMessage(manager1Id, notification, { parse_mode: 'HTML' });
   if (manager2Id) {
     await bot.telegram.sendMessage(manager2Id, notification, { parse_mode: 'HTML' });
+  }
+});
+
+// --- Scheduled Reminders (Daily at 9:00 AM) ---
+cron.schedule('0 9 * * *', async () => {
+  console.log('[CRON] Running daily reminder check...');
+  await checkAndSendReminders(bot, AUTHORIZED_IDS);
+});
+
+// --- Manual Reminder Command (For Testing/Admin) ---
+bot.command('remind_pending', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  // Simple check: Only authorized managers/accountant can trigger reminders
+  if (Object.values(AUTHORIZED_IDS).includes(userId)) {
+    await ctx.reply('🔍 Checking for pending requests that need reminders...');
+    await checkAndSendReminders(bot, AUTHORIZED_IDS);
+    await ctx.reply('✅ Reminder check completed.');
   }
 });
 
