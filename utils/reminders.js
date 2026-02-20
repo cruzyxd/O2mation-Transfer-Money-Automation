@@ -37,7 +37,7 @@ This request has been waiting for more than 24 hours:
 
 💰 <b>Amount:</b> ${req.amount}
 👤 <b>Recipient:</b> ${req.recipient}
-🛒 <b>Item:</b> ${req.item}
+📝 <b>Purpose:</b> ${req.item}
 📅 <b>Requested:</b> ${new Date(req.timestamp).toLocaleString()}
 
 Please take action on this request.
