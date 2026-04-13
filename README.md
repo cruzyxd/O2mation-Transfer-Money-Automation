@@ -1,4 +1,4 @@
-# Gemini Telegram Workflow Bot 🚀
+# O2mation Gemini Telegram Workflow Bot 🚀
 
 An intelligent automation bot built with **Node.js**, **Telegraf**, and **Google Gemini AI**. This bot streamlines internal payment request workflows for teams, featuring multi-role authorization, AI-powered data extraction, and Google Sheets synchronization.
 
